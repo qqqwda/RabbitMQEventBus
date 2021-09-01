@@ -4,7 +4,8 @@ using System.Text;
 
 namespace EventBus
 {
-    interface IIntegrationEvent
+    public interface IIntegrationEvent
     {
+
     }
 }

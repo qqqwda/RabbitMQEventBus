@@ -1,14 +1,16 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
 using System;
-using System.Collections.Generic;
 using System.Text;
 
 namespace EventBus
 {
     public class EventBus : IEventBus
     {
+        private readonly IServiceProvider _serviceProvider;
         private readonly IConnection _connection;
         private IModel _channel;
 
@@ -24,7 +26,9 @@ namespace EventBus
                 return _channel;
             }
         }
-        public EventBus(IConfiguration config)
+
+
+        public EventBus(IConfiguration config, IServiceProvider serviceProvider)
         {
             var connectionFactory = new ConnectionFactory
             {
@@ -37,6 +41,7 @@ namespace EventBus
             };
 
             _connection = connectionFactory.CreateConnection();
+            _serviceProvider = serviceProvider;
 
         }
 
@@ -44,8 +49,10 @@ namespace EventBus
         {
             CreateExchangeIfNotExists(exchangeName);
 
-            var jsonEvent = JsonConvert
+            var jsonEvent = JsonConvert.SerializeObject(@event);
+            var bytesEvent = Encoding.UTF8.GetBytes(jsonEvent);
 
+            Channel.BasicPublish(exchangeName,"", body:bytesEvent);
 
         }
 
@@ -53,12 +60,45 @@ namespace EventBus
             where TH : IIntegrationEventHandler<TE>
             where TE : IIntegrationEvent
         {
-            throw new NotImplementedException();
+            BindQueue(exchangeName, subscriberName);
+
+            var consumer = new AsyncEventingBasicConsumer(Channel);
+
+            consumer.Received += async (obj, args) =>
+            {
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    var handler = scope.ServiceProvider.GetRequiredService<IIntegrationEventHandler<TE>>();
+                    var jsonMessage = Encoding.UTF8.GetString(args.Body.ToArray());
+
+                    var message = JsonConvert.DeserializeObject<TE>(jsonMessage);
+
+                    await handler.HandleAsync(message);
+
+                    /**Acknowledge that message is recieved*/
+                    Channel.BasicAck(args.DeliveryTag, false);
+                }
+            };
+
+            Channel.BasicConsume(subscriberName, false, consumer);
         }
+
 
         private void CreateExchangeIfNotExists(string exchangeName)
         {
             Channel.ExchangeDeclare(exchangeName,ExchangeType.Fanout, true);
+        }
+
+        private void BindQueue(string exchangeName, string subscriberName)
+        {
+            CreateExchangeIfNotExists(exchangeName);
+
+            /**durable: true - exclusive: false - autoDelete: false*/
+            Channel.QueueDeclare(subscriberName, true, false, false);
+
+            Channel.QueueBind(subscriberName, exchangeName, "");
+
+
         }
     }
 }

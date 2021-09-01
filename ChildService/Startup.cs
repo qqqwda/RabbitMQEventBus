@@ -1,3 +1,5 @@
+using ChildService.IntegrationEvents;
+using Common;
 using EventBus;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -12,7 +14,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace MainService
+namespace ChildService
 {
     public class Startup
     {
@@ -28,16 +30,13 @@ namespace MainService
         {
 
             services.AddControllers();
-
-
             services.AddSwaggerGen(c =>
             {
-                c.SwaggerDoc("v1", new OpenApiInfo { Title = "MainService", Version = "v1" });
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "ChildService", Version = "v1" });
             });
 
             services.AddSingleton<IEventBus, EventBus.EventBus>();
-
-
+            services.AddTransient<IIntegrationEventHandler<MainIntegrationEvent>, MainIntegrationEventHandler>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -47,7 +46,7 @@ namespace MainService
             {
                 app.UseDeveloperExceptionPage();
                 app.UseSwagger();
-                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MainService v1"));
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "ChildService v1"));
             }
 
             app.UseRouting();
@@ -58,6 +57,9 @@ namespace MainService
             {
                 endpoints.MapControllers();
             });
+
+            var eventBus = app.ApplicationServices.GetRequiredService<IEventBus>();
+            eventBus.Subscribe<MainIntegrationEventHandler, MainIntegrationEvent>(nameof(MainIntegrationEvent), env.ApplicationName);
         }
     }
 }
